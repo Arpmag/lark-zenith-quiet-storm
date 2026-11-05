@@ -1,0 +1,40 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "П'ятірка",
+      "hasCanvas": false,
+      "bodyTextLen": 2621,
+      "bodyTextHash": "f8e997e1061e1753e951f0d7ddf0ce937d75cd527d054a1b0861498c6905a4df",
+      "bodyTextPrefix": "Bybit · п'ять угод і стоп П'ятірка Ви кладете ключі, обираєте де",
+      "horizontalOverflow": false,
+      "consoleErrors": [
+        "A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\n%s%s https://react.dev/link/hydration-mismatch \n\n  ...\n    <AuthProvider>\n      <OutletImpl>\n        <Suspense fallback={null}>\n          <MatchImpl routeId=\"/\">\n            <MatchView router={{...}} match={{id:\"//\",ssr:true, ...}}>\n              <CatchBoundary getResetKey={function getResetKey} errorComponent={function AppErrorComponent} ...>\n                <MatchInnerImpl match={{id:\"//\",ssr:true, ...}}>\n                  <Lazy>\n                    <DeskApp>\n                      <main className=\"mx-auto mi...\">\n                        <header>\n                        <div className=\"mt-5 grid ...\">\n                          <section className=\"grid gap-3\">\n                            <div>\n                            <div className=\"rounded-lg...\">\n                              <label>\n                              <input\n                                id=\"weekly\"\n                                inputMode=\"decimal\"\n                                disabled={false}\n                                value=\"250\"\n                                onChange={function onChange}\n                                className=\"mt-2 h-11 w-full rounded-sm border border-line bg-bg px-3 font-mono text-sm...\"\n-                               style={{caret-color:\"transparent\"}}\n                              >\n                              <div>\n                              <input\n                                aria-label=\"Ризик на угоду\"\n                                type=\"range\"\n                                min={0.4}\n                                max={1.5}\n                                step={0.1}\n                                disabled={false}\n                                value={0.8}\n                                onChange={function onChange}\n                                className=\"mt-2 w-full accent-accent\"\n-                               style={{caret-color:\"transparent\"}}\n                              >\n                              ...\n                            <div>\n                            <details className=\"rounded-lg...\" open={false} onToggle={function onToggle}>\n                              <summary>\n                              <p>\n                              <label>\n                              <input\n                                id=\"bkey\"\n                                autoComplete=\"off\"\n                                spellCheck={false}\n                                disabled={false}\n                                value=\"\"\n                                onChange={function onChange}\n                                className=\"mt-1 h-11 w-full rounded-sm border border-line bg-bg px-3 font-mono text-sm...\"\n-                               style={{caret-color:\"transparent\"}}\n                              >\n                              <label>\n                              <input\n                                id=\"bsec\"\n                                type=\"password\"\n                                autoComplete=\"off\"\n                                spellCheck={false}\n                                disabled={false}\n                                value=\"\"\n                                onChange={function onChange}\n                                className=\"mt-1 h-11 w-full rounded-sm border border-line bg-bg px-3 font-mono text-sm...\"\n-                               style={{caret-color:\"transparent\"}}\n                              >\n                              ...\n                            <details className=\"rounded-lg...\">\n                              <summary>\n                              <p>\n                              <div>\n                              <label className=\"mt-3 block...\">\n                                <input\n                                  type=\"password\"\n                                  autoComplete=\"off\"\n                                  spellCheck={false}\n                                  disabled={false}\n                                  value=\"\"\n                                  onChange={function onChange}\n                                  className=\"mt-1 h-11 w-full rounded-sm border border-line bg-bg px-3 font-mono text-...\"\n-                                 style={{caret-color:\"transparent\"}}\n                                >\n                              <label className=\"mt-3 block...\">\n                                <input\n                                  type=\"password\"\n                                  autoComplete=\"off\"\n                                  spellCheck={false}\n                                  disabled={false}\n                                  value=\"\"\n                                  onChange={function onChange}\n                                  className=\"mt-1 h-11 w-full rounded-sm border border-line bg-bg px-3 font-mono text-...\"\n-                                 style={{caret-color:\"transparent\"}}\n                                >\n                              <label className=\"mt-3 block...\">\n                                <input\n                                  type=\"password\"\n                                  autoComplete=\"off\"\n                                  spellCheck={false}\n                                  disabled={false}\n                                  value=\"\"\n                                  onChange={function onChange}\n                                  className=\"mt-1 h-11 w-full rounded-sm border border-line bg-bg px-3 font-mono text-...\"\n-                                 style={{caret-color:\"transparent\"}}\n                                >\n                              ...\n                          ...\n                        ...\n"
+      ],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "П'ятірка",
+      "hasCanvas": false,
+      "bodyTextLen": 2428,
+      "bodyTextHash": "62e4ce740b313b39307ab452f62d82db26b33da79b750478be437f0bb731e186",
+      "bodyTextPrefix": "Bybit · п'ять угод і стоп П'ятірка Обираєте режим і суму, тиснет",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [
+    "BRAND NOTE: no custom public/og.jpg — the platform will serve the og.grok.me placeholder. Custom cards are the default for games of every kind (DOM board/word games included), whimsical apps, creative tools, and brand-forward pages — only plain utilities (converters, CRUD trackers, admin dashboards) keep the placeholder. If this app is not a plain utility, finish the brand-asset pass per /workspace/.grok/skills/og/SKILL.md."
+  ],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}
