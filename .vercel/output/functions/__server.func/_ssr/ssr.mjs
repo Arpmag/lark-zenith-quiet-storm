@@ -104,7 +104,7 @@ var HEADERS = { TSS_SHELL: "X-TSS_SHELL" };
 * the dev styles URL for route-scoped CSS collection.
 */
 async function getStartManifest(matchedRoutes) {
-	const { tsrStartManifest } = await import("../_tanstack-start-manifest_v-DIQgHA59.mjs");
+	const { tsrStartManifest } = await import("../_tanstack-start-manifest_v-CIBlFIc6.mjs");
 	const startManifest = tsrStartManifest();
 	let routes = startManifest.routes;
 	routes[rootRouteId];
@@ -126,31 +126,31 @@ async function getStartManifest(matchedRoutes) {
 var manifest = {
 	"0958818ceca6ee9d974a8890c9045aec7613de8cf30e7fd93a1c0d0671884e7a": {
 		functionName: "scanMarkets_createServerFn_handler",
-		importer: () => import("./desk.functions-MgMtmUjg.mjs")
+		importer: () => import("./desk.functions-WvykHg3b.mjs")
 	},
 	"2c8ceaf331ff52b4c8b6dab5d7047014dcb77b7429ffa3e23d63f34d2a4f2b19": {
 		functionName: "syncLive_createServerFn_handler",
-		importer: () => import("./desk.functions-MgMtmUjg.mjs")
+		importer: () => import("./desk.functions-WvykHg3b.mjs")
 	},
 	"465a593b114661d9356d0e3c06af6488ecf5fc15ed8dfc14ba15aacba9ee0cbc": {
 		functionName: "executeEntry_createServerFn_handler",
-		importer: () => import("./desk.functions-MgMtmUjg.mjs")
+		importer: () => import("./desk.functions-WvykHg3b.mjs")
 	},
 	"4a789028edc32128267b1f4d65c0c4d4f0f9db381aaaadbece73b12e3b72cb50": {
 		functionName: "closeLive_createServerFn_handler",
-		importer: () => import("./desk.functions-MgMtmUjg.mjs")
+		importer: () => import("./desk.functions-WvykHg3b.mjs")
 	},
 	"8966c83e131fb25fba37298ab0506a0a758b54fba92b14c8d625aafb03bf0f9f": {
 		functionName: "quotePrice_createServerFn_handler",
-		importer: () => import("./desk.functions-MgMtmUjg.mjs")
+		importer: () => import("./desk.functions-WvykHg3b.mjs")
 	},
 	"c2882ee1d3406d498a2c38846931dc27b6fe5c9a43059a791bbc30790301eeb4": {
 		functionName: "askAgent_createServerFn_handler",
-		importer: () => import("./desk.functions-MgMtmUjg.mjs")
+		importer: () => import("./desk.functions-WvykHg3b.mjs")
 	},
 	"dd07af43603dcef780eb9d10fc2eb313834b74da1b688a3c63ae43670d5b8a99": {
 		functionName: "checkAccount_createServerFn_handler",
-		importer: () => import("./desk.functions-MgMtmUjg.mjs")
+		importer: () => import("./desk.functions-WvykHg3b.mjs")
 	}
 };
 async function getServerFnById(id, access) {
@@ -1555,7 +1555,7 @@ var getBaseManifest = getProdBaseManifest;
 var createEarlyHintsForRequest = createEarlyHintsCollector;
 async function loadEntries() {
 	const [routerEntry, startEntry, pluginAdapters] = await Promise.all([
-		import("./router-CbfuBWZc.mjs"),
+		import("./router-y_xFqbFV.mjs"),
 		import("./start-5Z2QO8AU.mjs"),
 		import("./empty-plugin-adapters-D9UWiqvJ.mjs")
 	]);

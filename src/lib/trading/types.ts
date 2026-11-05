@@ -9,6 +9,12 @@ export const UNIVERSE = [
   "DOGEUSDT",
 ] as const;
 
+const LEVERAGED_TOKEN = /(UP|DOWN|BULL|BEAR|3L|3S)USDT$/;
+
+export function isUsdtName(symbol: string): boolean {
+  return /^[A-Z0-9]{2,20}USDT$/.test(symbol) && !LEVERAGED_TOKEN.test(symbol);
+}
+
 export type SymbolName = (typeof UNIVERSE)[number];
 export type Venue = "rehearsal" | "demo" | "real";
 export type MarketKind = "spot" | "linear";
@@ -39,6 +45,7 @@ export type BoardRow = {
   barT: number;
   barH: number;
   barL: number;
+  volRatio?: number;
 };
 
 export type Lesson = {

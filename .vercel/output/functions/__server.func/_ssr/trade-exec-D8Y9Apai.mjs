@@ -1,4 +1,4 @@
-//#region node_modules/.nitro/vite/services/ssr/assets/trade-exec-YtTdjSSY.js
+//#region node_modules/.nitro/vite/services/ssr/assets/trade-exec-D8Y9Apai.js
 var RECV = "5000";
 var BybitError = class extends Error {
 	code;
@@ -108,6 +108,10 @@ var UNIVERSE = [
 	"ADAUSDT",
 	"DOGEUSDT"
 ];
+var LEVERAGED_TOKEN = /(UP|DOWN|BULL|BEAR|3L|3S)USDT$/;
+function isUsdtName(symbol) {
+	return /^[A-Z0-9]{2,20}USDT$/.test(symbol) && !LEVERAGED_TOKEN.test(symbol);
+}
 var DAILY_LOSS_PCT = .03;
 var WEEKLY_LOSS_PCT = .06;
 var REHEARSAL_TIME_STOP_MS = 5e4;
@@ -479,6 +483,31 @@ function fitToBalance(size, args) {
 		qty: notional / args.entry
 	};
 }
+function fitToTurnover(size, args) {
+	if (!(args.turnover >= 15e6)) return {
+		ok: false,
+		error: "Добовий оборот нижче 15 млн USDT. Тонку пару не беру."
+	};
+	const dist = Math.abs(args.entry - args.stop) / args.entry;
+	if (!(dist > 0) || !(args.entry > 0)) return {
+		ok: false,
+		error: "Дистанція стопа непридатна."
+	};
+	const notional = Math.min(size.notional, args.turnover * 2e-4);
+	if (notional < 10) return {
+		ok: false,
+		error: "Після обороту номінал нижче 10 USDT."
+	};
+	const riskUsd = dist * notional;
+	return {
+		ok: true,
+		notional,
+		leverage: size.leverage,
+		margin: notional / size.leverage,
+		riskUsd,
+		qty: notional / args.entry
+	};
+}
 function capitalStance(trades, riskPct, now = Date.now()) {
 	const day = new Date(now).toISOString().slice(0, 10);
 	if (trades.filter((trade) => trade.reason === "stop" && new Date(trade.closedAt).toISOString().slice(0, 10) === day).length >= 2) return {
@@ -503,6 +532,20 @@ function cryptoFundingBlock(market, side, funding) {
 	if (side === "long" && funding >= 8e-4) return "Фандинг лонга ≥ 0.08% за інтервал. Угоду не беру: плата більша за частку ризику.";
 	if (side === "short" && funding <= -8e-4) return "Фандинг шорта ≤ −0.08% за інтервал. Угоду не беру: плата більша за частку ризику.";
 	return "";
+}
+function describeBook(args) {
+	const stance = capitalStance(args.trades, args.riskPct);
+	const dayLeft = args.weeklyUsd * DAILY_LOSS_PCT + args.realizedToday;
+	const weekLeft = args.weeklyUsd * WEEKLY_LOSS_PCT + args.realizedWeek;
+	const next = stance.pause ? "Нові угоди сьогодні зупинені." : `Наступний ризик ${(stance.riskPct * 100).toFixed(1)}% від робочої суми.`;
+	const book = args.market === "linear" ? "Ф'ючерс: одна позиція, плече до 3, фандинг від 0.08% проти сторони — пропуск." : "Спот: лише лонг, друга покупка тієї самої монети не ставиться.";
+	return [
+		`Капітал ${args.weeklyUsd.toFixed(0)} USDT. ${next}`,
+		stance.note,
+		`Запас дня ${dayLeft.toFixed(2)} USDT, тижня ${weekLeft.toFixed(2)}. Угод ${args.closedToday}/5.`,
+		book,
+		"Після мінуса ризик половиниться. Два стопи за день закривають нові входи. Година паузи на парі після її закриття."
+	].filter(Boolean).join(" ");
 }
 function netPnl(args) {
 	const gross = args.side === "long" ? args.qty * (args.exit - args.entry) : args.qty * (args.entry - args.exit);
@@ -547,7 +590,8 @@ function scoreOne(row, market, lessons, recent, threshold, bias) {
 		spark,
 		barT: lastBar?.t ?? 0,
 		barH: lastBar?.h ?? 0,
-		barL: lastBar?.l ?? 0
+		barL: lastBar?.l ?? 0,
+		volRatio: 1
 	};
 	if (closed.length < 60 || !(row.last > 0)) {
 		base.reasons = ["Замало свічок для краю."];
@@ -581,8 +625,8 @@ function scoreOne(row, market, lessons, recent, threshold, bias) {
 		reasons.push("EMA20 під EMA50, коротке вікно на ф'ючерсі.");
 	} else if (market === "spot" && downTrend) reasons.push("Спадний край. На споті шорт не відкриваю.");
 	else reasons.push("Немає чистого краю між EMA.");
-	if (volRatio >= 1) reasons.push("Обсяг не нижче середнього.");
-	else reasons.push("Обсяг тонкий.");
+	if (volRatio >= 1) reasons.push(`Обсяг ${volRatio.toFixed(1)}× середнього, оборот ${formatTurnover(row.turnover)}.`);
+	else reasons.push(`Обсяг тонкий, ${volRatio.toFixed(1)}× середнього. Оборот ${formatTurnover(row.turnover)}.`);
 	if (atrPct < .0015) reasons.push("Замало ходу для стопа.");
 	if (atrPct > .045) reasons.push("Заширокий ATR для цього вікна.");
 	let score = 0;
@@ -650,8 +694,35 @@ function scoreOne(row, market, lessons, recent, threshold, bias) {
 		stop: side === "flat" ? 0 : stop,
 		take: side === "flat" ? 0 : take,
 		reasons,
-		fingerprint: fp
+		fingerprint: fp,
+		volRatio
 	};
+}
+function formatTurnover(n) {
+	if (!(n > 0)) return "немає обороту";
+	if (n >= 1e9) return `${(n / 1e9).toFixed(1)} млрд`;
+	if (n >= 1e6) return `${Math.round(n / 1e6)} млн`;
+	return `${Math.round(n / 1e3)} тис`;
+}
+function liquidityLine(row) {
+	const vol = row.volRatio ?? 0;
+	if (!(row.turnover > 0)) return "";
+	const depth = row.turnover >= 1e8 ? "глибока" : row.turnover >= 3e7 ? "нормальна" : "тонка";
+	const flow = vol >= 1.5 ? "обсяг росте" : vol >= 1 ? "обсяг звичайний" : "обсяг нижче середнього";
+	return `${depth}, ${formatTurnover(row.turnover)} за добу, ${flow} (${vol.toFixed(1)}×)`;
+}
+function marketBrief(rows) {
+	if (!rows.length) return "";
+	const up = rows.filter((row) => row.changePct > 0).length;
+	const longs = rows.filter((row) => row.side === "long").length;
+	const shorts = rows.filter((row) => row.side === "short").length;
+	const hot = rows.filter((row) => (row.volRatio ?? 0) >= 1).length;
+	const deep = rows.filter((row) => row.turnover >= 1e8).length;
+	const thin = rows.filter((row) => row.turnover > 0 && row.turnover < 3e7).length;
+	const turnovers = rows.map((row) => row.turnover).filter((n) => n > 0).sort((a, b) => a - b);
+	const mid = turnovers.length ? turnovers[Math.floor(turnovers.length / 2)] : 0;
+	const majors = rows.filter((row) => row.symbol === "BTCUSDT" || row.symbol === "ETHUSDT").map((row) => `${row.symbol.replace("USDT", "")} ${row.changePct >= 0 ? "+" : ""}${row.changePct.toFixed(1)}%`).join(", ");
+	return `Ринок: ${up} з ${rows.length} у плюсі за добу, лонгів ${longs}, шортів ${shorts}. Обсяг вище середнього в ${hot} з ${rows.length}. Медіана обороту ${formatTurnover(mid)}. Глибоких ${deep}, тонших ${thin}.${majors ? ` ${majors}.` : ""}`;
 }
 function localCritic(row) {
 	if (!row.tradable || row.side === "flat") return {
@@ -680,6 +751,17 @@ function num$1(v) {
 	const n = Number(v);
 	return Number.isFinite(n) ? n : 0;
 }
+var MIN_TURNOVER = 15e6;
+var SCAN_CAP = 24;
+function topByTurnover(rows) {
+	const picked = rows.filter((row) => isUsdtName(row.symbol) && row.turnover >= MIN_TURNOVER).sort((a, b) => b.turnover - a.turnover).slice(0, SCAN_CAP).map((row) => row.symbol);
+	return picked.length > 0 ? picked : [...UNIVERSE];
+}
+async function mapPool(items, size, fn) {
+	const out = [];
+	for (let i = 0; i < items.length; i += size) out.push(...await Promise.all(items.slice(i, i + size).map(fn)));
+	return out;
+}
 function gatePair(symbol) {
 	return `${symbol.replace(/USDT$/, "")}_USDT`;
 }
@@ -702,7 +784,10 @@ async function scanBybit(market, lessons, recent, threshold, bias) {
 	const category = market === "linear" ? "linear" : "spot";
 	const tickers = await bybitPublic(`/v5/market/tickers?category=${category}`);
 	const bySymbol = new Map((tickers.list ?? []).map((t) => [t.symbol, t]));
-	return rankMarkets((await Promise.all(UNIVERSE.map(async (symbol) => {
+	return rankMarkets((await mapPool(topByTurnover((tickers.list ?? []).map((ticker) => ({
+		symbol: String(ticker.symbol ?? ""),
+		turnover: num$1(ticker.turnover24h)
+	}))), 6, async (symbol) => {
 		const ticker = bySymbol.get(symbol);
 		if (!ticker) return null;
 		const candles = parseBybitCandles((await bybitPublic(`/v5/market/kline?category=${category}&symbol=${symbol}&interval=15&limit=120`)).list ?? []).slice(0, -1);
@@ -714,7 +799,7 @@ async function scanBybit(market, lessons, recent, threshold, bias) {
 			funding: market === "linear" ? num$1(ticker.fundingRate) : null,
 			candles
 		};
-	}))).filter((x) => !!x && x.last > 0), market, lessons, recent, threshold, bias);
+	})).filter((x) => !!x && x.last > 0), market, lessons, recent, threshold, bias);
 }
 function parseGateSpotCandles(rows) {
 	return rows.map((row) => ({
@@ -728,11 +813,19 @@ function parseGateSpotCandles(rows) {
 }
 async function scanGate(market, lessons, recent, threshold, bias) {
 	const funding = /* @__PURE__ */ new Map();
+	let symbols = [...UNIVERSE];
 	if (market === "linear") {
 		const futs = await getJson("https://api.gateio.ws/api/v4/futures/usdt/tickers");
 		for (const row of futs) if (row.contract) funding.set(row.contract, row);
-	}
-	return rankMarkets((await Promise.all(UNIVERSE.map(async (symbol) => {
+		symbols = topByTurnover(futs.map((row) => ({
+			symbol: String(row.contract ?? "").replace("_", ""),
+			turnover: num$1(row.volume_24h_quote)
+		})));
+	} else symbols = topByTurnover((await getJson("https://api.gateio.ws/api/v4/spot/tickers")).map((row) => ({
+		symbol: String(row.currency_pair ?? "").replace("_", ""),
+		turnover: num$1(row.quote_volume)
+	})));
+	return rankMarkets((await mapPool(symbols, 6, async (symbol) => {
 		const pair = gatePair(symbol);
 		if (market === "linear") {
 			const ticker = funding.get(pair);
@@ -767,7 +860,54 @@ async function scanGate(market, lessons, recent, threshold, bias) {
 			funding: null,
 			candles: closed
 		};
-	}))).filter((x) => !!x && x.last > 0), market, lessons, recent, threshold, bias);
+	})).filter((x) => !!x && x.last > 0), market, lessons, recent, threshold, bias);
+}
+var censusCache = null;
+function bucket(category, symbol) {
+	if (!symbol) return "other";
+	if (category === "inverse") return "inverse";
+	if (/(UP|DOWN|BULL|BEAR|3L|3S)USDT$/.test(symbol)) return "leveraged";
+	if (symbol.includes("-")) return "dated";
+	if (symbol.endsWith("USDC") || symbol.endsWith("PERP")) return "usdc";
+	if (category === "spot" && isUsdtName(symbol)) return "spot";
+	if (category === "linear" && isUsdtName(symbol)) return "perp";
+	return "other";
+}
+async function marketCensus() {
+	if (censusCache && Date.now() - censusCache.at < 18e4) return censusCache.line;
+	const [spot, linear, inverse] = await Promise.all([
+		bybitPublic("/v5/market/tickers?category=spot").catch(() => null),
+		bybitPublic("/v5/market/tickers?category=linear").catch(() => null),
+		bybitPublic("/v5/market/tickers?category=inverse").catch(() => null)
+	]);
+	const counts = {
+		spot: 0,
+		perp: 0,
+		dated: 0,
+		leveraged: 0,
+		inverse: 0,
+		usdc: 0
+	};
+	const liquid = {
+		spot: 0,
+		perp: 0
+	};
+	const take = (category, rows) => {
+		for (const row of rows ?? []) {
+			const kind = bucket(category, String(row.symbol ?? ""));
+			if (kind in counts) counts[kind] += 1;
+			if ((kind === "spot" || kind === "perp") && num$1(row.turnover24h) >= MIN_TURNOVER) liquid[kind] += 1;
+		}
+	};
+	take("spot", spot?.list);
+	take("linear", linear?.list);
+	take("inverse", inverse?.list);
+	const line = `Усі види Bybit: спот USDT ${counts.spot} (ліквідних ${liquid.spot}), безстрокові ${counts.perp} (ліквідних ${liquid.perp}), строкові ${counts.dated}, inverse ${counts.inverse}, USDC ${counts.usdc}, токени з плечем ${counts.leveraged}. У свічки йдуть лише ліквідні обраного режиму. Строкові, inverse і USDC не торгую.`;
+	censusCache = {
+		at: Date.now(),
+		line
+	};
+	return line;
 }
 async function lastPrice(feed, market, symbol) {
 	if (feed === "bybit") return num$1((await bybitPublic(`/v5/market/tickers?category=${market === "linear" ? "linear" : "spot"}&symbol=${symbol}`)).list?.[0]?.lastPrice);
@@ -841,9 +981,9 @@ async function openPosition(args) {
 			ok: false,
 			error: "На споті машина відкриває лише лонг."
 		};
-		if (!UNIVERSE_OK(args.symbol)) return {
+		if (!isUsdtName(args.symbol)) return {
 			ok: false,
-			error: "Пара поза дозволеним списком."
+			error: "Беру лише USDT-спот і безстрокові USDT. Строкові і токени з плечем не чіпаю."
 		};
 		const info = await instrument(args.venue, args.key, args.secret, args.market, args.symbol);
 		const tick = num(info.priceFilter?.tickSize) || .01;
@@ -955,18 +1095,6 @@ async function openPosition(args) {
 	} catch (error) {
 		return fail(error);
 	}
-}
-function UNIVERSE_OK(symbol) {
-	return [
-		"BTCUSDT",
-		"ETHUSDT",
-		"SOLUSDT",
-		"XRPUSDT",
-		"LINKUSDT",
-		"AVAXUSDT",
-		"ADAUSDT",
-		"DOGEUSDT"
-	].includes(symbol);
 }
 async function placeLinear(args, qty, step, stop, take, orderLinkId) {
 	const qtyStr = qtyString(qty, step);
@@ -1193,7 +1321,7 @@ async function findLinearPositions(args) {
 					category: "linear",
 					settleCoin: "USDT"
 				}
-			})).list ?? []).filter((row) => num(row.size) > 0 && UNIVERSE_OK(String(row.symbol ?? ""))).map((row) => ({
+			})).list ?? []).filter((row) => num(row.size) > 0).map((row) => ({
 				symbol: String(row.symbol),
 				side: row.side === "Sell" ? "short" : "long",
 				size: num(row.size),
@@ -1435,4 +1563,4 @@ async function closePosition(args) {
 	}
 }
 //#endregion
-export { sizePosition as C, weekStart as E, scanGate as S, utcDay as T, localCritic as _, WEEKLY_LOSS_PCT as a, readAccount as b, closePosition as c, fitToBalance as d, formatHm as f, loadTapeBias as g, lastPrice as h, REHEARSAL_TIME_STOP_MS as i, closeReading as l, formatUsd as m, DAILY_LOSS_PCT as n, breakevenPx as o, formatPx as p, LIVE_TIME_STOP_MS as r, capitalStance as s, BybitError as t, findLinearPositions as u, netPnl as v, syncPosition as w, scanBybit as x, openPosition as y };
+export { utcDay as A, netPnl as C, scanGate as D, scanBybit as E, sizePosition as O, marketCensus as S, readAccount as T, lastPrice as _, WEEKLY_LOSS_PCT as a, localCritic as b, closePosition as c, findLinearPositions as d, fitToBalance as f, formatUsd as g, formatPx as h, REHEARSAL_TIME_STOP_MS as i, weekStart as j, syncPosition as k, closeReading as l, formatHm as m, DAILY_LOSS_PCT as n, breakevenPx as o, fitToTurnover as p, LIVE_TIME_STOP_MS as r, capitalStance as s, BybitError as t, describeBook as u, liquidityLine as v, openPosition as w, marketBrief as x, loadTapeBias as y };

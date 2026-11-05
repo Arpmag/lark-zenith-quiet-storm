@@ -1,10 +1,10 @@
 import { i as __toESM } from "../_runtime.mjs";
 import { a as AlertDialogDescription, c as AlertDialogTitle, d as require_react, i as AlertDialogContent, n as AlertDialogAction, o as AlertDialogOverlay, r as AlertDialogCancel, s as AlertDialogPortal, t as AlertDialog, u as require_jsx_runtime } from "../_libs/@radix-ui/react-alert-dialog+[...].mjs";
 import { n as TSS_SERVER_FUNCTION, r as getServerFnById, t as createServerFn } from "./ssr.mjs";
-import { C as sizePosition, E as weekStart, T as utcDay, _ as localCritic, a as WEEKLY_LOSS_PCT, b as readAccount, c as closePosition, d as fitToBalance, f as formatHm, g as loadTapeBias, i as REHEARSAL_TIME_STOP_MS, l as closeReading, m as formatUsd, n as DAILY_LOSS_PCT, o as breakevenPx, p as formatPx, r as LIVE_TIME_STOP_MS, s as capitalStance, t as BybitError, u as findLinearPositions, v as netPnl, w as syncPosition, x as scanBybit, y as openPosition } from "./trade-exec-YtTdjSSY.mjs";
+import { A as utcDay, C as netPnl, E as scanBybit, O as sizePosition, S as marketCensus, T as readAccount, a as WEEKLY_LOSS_PCT, b as localCritic, c as closePosition, d as findLinearPositions, f as fitToBalance, g as formatUsd, h as formatPx, i as REHEARSAL_TIME_STOP_MS, j as weekStart, k as syncPosition, l as closeReading, m as formatHm, n as DAILY_LOSS_PCT, o as breakevenPx, p as fitToTurnover, r as LIVE_TIME_STOP_MS, s as capitalStance, t as BybitError, u as describeBook, v as liquidityLine, w as openPosition, x as marketBrief, y as loadTapeBias } from "./trade-exec-D8Y9Apai.mjs";
 import { n as Line, r as ResponsiveContainer, t as LineChart } from "../_libs/recharts+[...].mjs";
 import { n as persist, r as create, t as createJSONStorage } from "../_libs/zustand.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-da0VL_V7.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-NCwaThnx.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var QUOTA = [
@@ -444,10 +444,12 @@ async function loadBoard(allowFallback) {
 	if (settings.venue !== "rehearsal") try {
 		const tape = await loadTapeBias().catch(() => null);
 		const rows = await scanBybit(settings.market, session.lessons, recent, session.threshold, tape?.bias ?? null);
+		const extra = tape?.line ? ` ${tape.line}` : "";
+		const census = await marketCensus().catch(() => "");
 		return {
 			ok: true,
 			feed: "bybit",
-			note: `Стрічка Bybit з вашого інтернету.${tape?.line ? ` ${tape.line}` : ""}`,
+			note: `Стрічка Bybit з вашого інтернету.${census ? ` ${census}` : ""}${extra}`,
 			rows
 		};
 	} catch (error) {
@@ -598,7 +600,7 @@ async function scanAndEnter() {
 		return;
 	}
 	patch({ phase: "scanning" });
-	log("Розвідник", "Знімаю 15-хвилинні свічки восьми ліквідних пар.");
+	log("Розвідник", "Знімаю 15-хвилинні свічки ліквідних USDT-пар, не лише вісімки.");
 	const board = await loadBoard(settings.venue === "rehearsal");
 	if (!useDesk.getState().session.running) return;
 	if (!board.ok) {
@@ -667,11 +669,13 @@ async function scanAndEnter() {
 		}
 	}
 	const session = useDesk.getState().session;
-	const row = board.rows.find((item) => item.tradable && !session.banned.includes(item.symbol));
+	const cooled = new Set(session.trades.filter((trade) => Date.now() - trade.closedAt < 36e5).map((trade) => trade.symbol));
+	const row = board.rows.find((item) => item.tradable && !session.banned.includes(item.symbol) && !cooled.has(item.symbol));
 	if (!row || row.side === "flat") {
 		const best = board.rows[0];
+		const paused = board.rows.find((item) => item.tradable && !session.banned.includes(item.symbol) && cooled.has(item.symbol));
 		patch({ emptyScans: session.emptyScans + 1 });
-		log("Розвідник", best?.reasons.some((reason) => /новин|макро|CPI|FOMC|NFP|PCE|Фандинг/i.test(reason)) ? `Пропуск. ${best.reasons.find((reason) => /новин|макро|CPI|FOMC|NFP|PCE|Фандинг/i.test(reason))}` : best ? `Кращий бал ${best.score} у ${best.symbol}. Поріг ${session.threshold} не знижую: слабші сетапи на історії не відігравали.` : "Стрічка порожня.");
+		log("Розвідник", paused ? `Пропуск. ${paused.symbol} на паузі годину після закриття.` : best?.reasons.some((reason) => /новин|макро|CPI|FOMC|NFP|PCE|Фандинг/i.test(reason)) ? `Пропуск. ${best.reasons.find((reason) => /новин|макро|CPI|FOMC|NFP|PCE|Фандинг/i.test(reason))}` : best ? `Кращий бал ${best.score} у ${best.symbol}. Поріг ${session.threshold} не знижую: слабші сетапи на історії не відігравали.` : "Стрічка порожня.");
 		return;
 	}
 	const critic = await criticize(row);
@@ -742,12 +746,25 @@ async function scanAndEnter() {
 		}));
 		return;
 	}
-	log("Капітал", `${stance.note ? `${stance.note} ` : ""}${row.symbol}: ризик ${fitted.riskUsd.toFixed(2)} USDT, номінал ${fitted.notional.toFixed(0)}, плече ${fitted.leverage}. Стоп незмінний.`);
-	if (settings.venue === "rehearsal") {
-		openPaper(row, fitted);
+	const booked = fitToTurnover(fitted, {
+		turnover: row.turnover,
+		entry: row.entry,
+		stop: row.stop
+	});
+	if (!booked.ok) {
+		log("Капітал", `${row.symbol}: ${booked.error}`);
+		patch((current) => ({
+			...current,
+			banned: [...current.banned, row.symbol].slice(-12)
+		}));
 		return;
 	}
-	await openLive(row, fitted);
+	log("Капітал", `${stance.note ? `${stance.note} ` : ""}${row.symbol}: ризик ${booked.riskUsd.toFixed(2)} USDT, номінал ${booked.notional.toFixed(0)}, плече ${booked.leverage}. Стоп незмінний.`);
+	if (settings.venue === "rehearsal") {
+		openPaper(row, booked);
+		return;
+	}
+	await openLive(row, booked);
 }
 async function criticize(row) {
 	const local = localCritic(row);
@@ -1664,6 +1681,22 @@ function DeskApp() {
 									className: "text-xs text-muted",
 									children: session.feedNote || "Знімаю ціни…"
 								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "mt-1 text-xs text-muted",
+									children: describeBook({
+										weeklyUsd: settings.weeklyUsd,
+										riskPct: settings.riskPct,
+										market: settings.market,
+										realizedToday: session.realizedToday,
+										realizedWeek: session.realizedWeek,
+										closedToday: session.closedToday,
+										trades: session.trades
+									})
+								}),
+								session.board.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "mt-1 text-xs text-muted",
+									children: marketBrief(session.board)
+								}) : null,
 								session.ledgerNote ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 									className: "mt-1 text-xs text-muted",
 									children: session.ledgerNote
@@ -1675,40 +1708,47 @@ function DeskApp() {
 										children: "Порожньо, доки не прийде перша стрічка."
 									}) : session.board.map((row) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 										className: "rounded-sm border border-line bg-bg px-2 py-2",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "grid grid-cols-[5.5rem_minmax(0,1fr)_auto] items-center gap-2",
-											children: [
-												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-													className: "text-sm font-medium text-fg",
-													children: row.symbol.replace("USDT", "")
-												}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-													className: `text-xs ${row.side === "long" ? "text-up" : row.side === "short" ? "text-down" : "text-subtle"}`,
-													children: [row.side === "long" ? "лонг" : row.side === "short" ? "шорт" : "флет", row.tradable ? " · бере" : ""]
-												})] }),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Spark, {
-													values: row.spark,
-													up: row.changePct >= 0
-												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "text-right",
-													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-														className: "font-mono text-sm tabular-nums text-fg",
-														children: formatPx(row.last)
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "grid grid-cols-[5.5rem_minmax(0,1fr)_auto] items-center gap-2",
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+														className: "text-sm font-medium text-fg",
+														children: row.symbol.replace("USDT", "")
 													}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-														className: `font-mono text-xs tabular-nums ${row.changePct >= 0 ? "text-up" : "text-down"}`,
-														children: [
-															row.changePct >= 0 ? "+" : "",
-															row.changePct.toFixed(2),
-															"% · ",
-															row.score
-														]
-													})]
-												})
-											]
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-											className: "mt-1 text-xs text-subtle",
-											children: row.reasons[0]
-										})]
+														className: `text-xs ${row.side === "long" ? "text-up" : row.side === "short" ? "text-down" : "text-subtle"}`,
+														children: [row.side === "long" ? "лонг" : row.side === "short" ? "шорт" : "флет", row.tradable ? " · бере" : ""]
+													})] }),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Spark, {
+														values: row.spark,
+														up: row.changePct >= 0
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "text-right",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+															className: "font-mono text-sm tabular-nums text-fg",
+															children: formatPx(row.last)
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+															className: `font-mono text-xs tabular-nums ${row.changePct >= 0 ? "text-up" : "text-down"}`,
+															children: [
+																row.changePct >= 0 ? "+" : "",
+																row.changePct.toFixed(2),
+																"% · ",
+																row.score
+															]
+														})]
+													})
+												]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+												className: "mt-1 text-xs text-subtle",
+												children: row.reasons[0]
+											}),
+											liquidityLine(row) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+												className: "text-xs text-subtle",
+												children: liquidityLine(row)
+											}) : null
+										]
 									}, row.symbol))
 								})
 							]
@@ -1926,7 +1966,7 @@ function DeskApp() {
 						LAST_STUDY.avgRMajors,
 						"R. Комісія вже віднята."
 					] }),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Натовп — публічний lsr_account Gate, настрій — Alternative.me. Новини — CoinDesk, The Block, Cointelegraph і календар USD: злом, депег, зупинка виводів, делістинг, банкрутство, CPI, FOMC, NFP, PCE. Преміум-дані TradingView сюди не тягнуться. Якщо заголовок б'є по парі або по всьому ринку, новий вхід блокується. На ф'ючерсі угода не береться, якщо фандинг проти сторони від 0.08% за інтервал." }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Натовп — публічний lsr_account Gate, настрій — Alternative.me. Новини — CoinDesk, The Block, Cointelegraph і календар USD: злом, депег, зупинка виводів, делістинг, банкрутство, CPI, FOMC, NFP, PCE. Преміум-дані TradingView сюди не тягнуться. Якщо заголовок б'є по парі або по всьому ринку, новий вхід блокується. На ф'ючерсі угода не береться, якщо фандинг проти сторони від 0.08% за інтервал. Розбір іде по ліквідних USDT-парах обраного режиму: спот або безстрокові, до 24 назв з оборотом від 15 млн. Строкові ф'ючерси і токени з плечем не беруться. Номінал не більший за 0.02% добового обороту." }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Ролі ради (розвідник, критик, ризик, виконавець, супровід, рецензент) розділяють роботу, як у дослідницьких multi-agent столах. Критик може сказати «ні». Ризик-модуль один ставить кількість і стоп." }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 						className: "text-fg",

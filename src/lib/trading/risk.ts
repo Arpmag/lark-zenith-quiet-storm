@@ -1,5 +1,5 @@
 import { clamp } from "@/lib/trading/math";
-import type { MarketKind, Side } from "@/lib/trading/types";
+import { DAILY_LOSS_PCT, TRADES_PER_DAY, WEEKLY_LOSS_PCT, type MarketKind, type Side } from "@/lib/trading/types";
 
 export type Size =
   | {
@@ -127,6 +127,28 @@ export function fitToBalance(
   };
 }
 
+export function fitToTurnover(
+  size: Extract<Size, { ok: true }>,
+  args: { turnover: number; entry: number; stop: number },
+): Size {
+  if (!(args.turnover >= 15_000_000)) {
+    return { ok: false, error: "Добовий оборот нижче 15 млн USDT. Тонку пару не беру." };
+  }
+  const dist = Math.abs(args.entry - args.stop) / args.entry;
+  if (!(dist > 0) || !(args.entry > 0)) return { ok: false, error: "Дистанція стопа непридатна." };
+  const notional = Math.min(size.notional, args.turnover * 0.0002);
+  if (notional < 10) return { ok: false, error: "Після обороту номінал нижче 10 USDT." };
+  const riskUsd = dist * notional;
+  return {
+    ok: true,
+    notional,
+    leverage: size.leverage,
+    margin: notional / size.leverage,
+    riskUsd,
+    qty: notional / args.entry,
+  };
+}
+
 export function capitalStance(
   trades: { pnl: number; reason: string; closedAt: number }[],
   riskPct: number,
@@ -159,6 +181,36 @@ export function cryptoFundingBlock(market: MarketKind, side: Side, funding: numb
     return "Фандинг шорта ≤ −0.08% за інтервал. Угоду не беру: плата більша за частку ризику.";
   }
   return "";
+}
+
+export function describeBook(args: {
+  weeklyUsd: number;
+  riskPct: number;
+  market: MarketKind;
+  realizedToday: number;
+  realizedWeek: number;
+  closedToday: number;
+  trades: { pnl: number; reason: string; closedAt: number }[];
+}): string {
+  const stance = capitalStance(args.trades, args.riskPct);
+  const dayLeft = args.weeklyUsd * DAILY_LOSS_PCT + args.realizedToday;
+  const weekLeft = args.weeklyUsd * WEEKLY_LOSS_PCT + args.realizedWeek;
+  const next = stance.pause
+    ? "Нові угоди сьогодні зупинені."
+    : `Наступний ризик ${(stance.riskPct * 100).toFixed(1)}% від робочої суми.`;
+  const book =
+    args.market === "linear"
+      ? "Ф'ючерс: одна позиція, плече до 3, фандинг від 0.08% проти сторони — пропуск."
+      : "Спот: лише лонг, друга покупка тієї самої монети не ставиться.";
+  return [
+    `Капітал ${args.weeklyUsd.toFixed(0)} USDT. ${next}`,
+    stance.note,
+    `Запас дня ${dayLeft.toFixed(2)} USDT, тижня ${weekLeft.toFixed(2)}. Угод ${args.closedToday}/${TRADES_PER_DAY}.`,
+    book,
+    "Після мінуса ризик половиниться. Два стопи за день закривають нові входи. Година паузи на парі після її закриття.",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function netPnl(args: {

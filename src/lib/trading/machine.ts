@@ -2,10 +2,10 @@ import { askAgent, quotePrice, scanMarkets } from "@/lib/desk.functions";
 import { BybitError } from "@/lib/trading/bybit";
 import { loadTapeBias } from "@/lib/trading/context";
 import { observeBoard } from "@/lib/trading/ledger";
-import { scanBybit } from "@/lib/trading/scan";
+import { marketCensus, scanBybit } from "@/lib/trading/scan";
 import { closePosition, findLinearPositions, openPosition, readAccount, syncPosition } from "@/lib/trading/trade-exec";
 import { utcDay, weekStart } from "@/lib/trading/math";
-import { capitalStance, closeReading, fitToBalance, netPnl, sizePosition } from "@/lib/trading/risk";
+import { capitalStance, closeReading, fitToBalance, fitToTurnover, netPnl, sizePosition } from "@/lib/trading/risk";
 import { localCritic } from "@/lib/trading/strategy";
 import { useDesk } from "@/lib/trading/store";
 import {
@@ -92,7 +92,13 @@ async function loadBoard(allowFallback: boolean): Promise<ScanResult> {
         tape?.bias ?? null,
       );
       const extra = tape?.line ? ` ${tape.line}` : "";
-      return { ok: true, feed: "bybit", note: `Стрічка Bybit з вашого інтернету.${extra}`, rows };
+      const census = await marketCensus().catch(() => "");
+      return {
+        ok: true,
+        feed: "bybit",
+        note: `Стрічка Bybit з вашого інтернету.${census ? ` ${census}` : ""}${extra}`,
+        rows,
+      };
     } catch (error) {
       return {
         ok: false,
@@ -263,7 +269,7 @@ async function scanAndEnter() {
     return;
   }
   patch({ phase: "scanning" });
-  log("Розвідник", "Знімаю 15-хвилинні свічки восьми ліквідних пар.");
+  log("Розвідник", "Знімаю 15-хвилинні свічки ліквідних USDT-пар, не лише вісімки.");
   const board = await loadBoard(settings.venue === "rehearsal");
   if (!useDesk.getState().session.running) return;
   if (!board.ok) {
@@ -336,18 +342,30 @@ async function scanAndEnter() {
     }
   }
   const session = useDesk.getState().session;
-  const row = board.rows.find((item) => item.tradable && !session.banned.includes(item.symbol));
+  const cooled = new Set(
+    session.trades
+      .filter((trade) => Date.now() - trade.closedAt < 60 * 60 * 1000)
+      .map((trade) => trade.symbol),
+  );
+  const row = board.rows.find(
+    (item) => item.tradable && !session.banned.includes(item.symbol) && !cooled.has(item.symbol),
+  );
   if (!row || row.side === "flat") {
     const best = board.rows[0];
+    const paused = board.rows.find(
+      (item) => item.tradable && !session.banned.includes(item.symbol) && cooled.has(item.symbol),
+    );
     const emptyScans = session.emptyScans + 1;
     patch({ emptyScans });
     log(
       "Розвідник",
-      best?.reasons.some((reason) => /новин|макро|CPI|FOMC|NFP|PCE|Фандинг/i.test(reason))
-        ? `Пропуск. ${best.reasons.find((reason) => /новин|макро|CPI|FOMC|NFP|PCE|Фандинг/i.test(reason))}`
-        : best
-          ? `Кращий бал ${best.score} у ${best.symbol}. Поріг ${session.threshold} не знижую: слабші сетапи на історії не відігравали.`
-          : "Стрічка порожня.",
+      paused
+        ? `Пропуск. ${paused.symbol} на паузі годину після закриття.`
+        : best?.reasons.some((reason) => /новин|макро|CPI|FOMC|NFP|PCE|Фандинг/i.test(reason))
+          ? `Пропуск. ${best.reasons.find((reason) => /новин|макро|CPI|FOMC|NFP|PCE|Фандинг/i.test(reason))}`
+          : best
+            ? `Кращий бал ${best.score} у ${best.symbol}. Поріг ${session.threshold} не знижую: слабші сетапи на історії не відігравали.`
+            : "Стрічка порожня.",
     );
     return;
   }
@@ -416,15 +434,21 @@ async function scanAndEnter() {
     patch((current) => ({ ...current, banned: [...current.banned, row.symbol].slice(-12) }));
     return;
   }
-  log(
-    "Капітал",
-    `${stance.note ? `${stance.note} ` : ""}${row.symbol}: ризик ${fitted.riskUsd.toFixed(2)} USDT, номінал ${fitted.notional.toFixed(0)}, плече ${fitted.leverage}. Стоп незмінний.`,
-  );
-  if (settings.venue === "rehearsal") {
-    openPaper(row, fitted);
+  const booked = fitToTurnover(fitted, { turnover: row.turnover, entry: row.entry, stop: row.stop });
+  if (!booked.ok) {
+    log("Капітал", `${row.symbol}: ${booked.error}`);
+    patch((current) => ({ ...current, banned: [...current.banned, row.symbol].slice(-12) }));
     return;
   }
-  await openLive(row, fitted);
+  log(
+    "Капітал",
+    `${stance.note ? `${stance.note} ` : ""}${row.symbol}: ризик ${booked.riskUsd.toFixed(2)} USDT, номінал ${booked.notional.toFixed(0)}, плече ${booked.leverage}. Стоп незмінний.`,
+  );
+  if (settings.venue === "rehearsal") {
+    openPaper(row, booked);
+    return;
+  }
+  await openLive(row, booked);
 }
 
 async function criticize(row: BoardRow): Promise<"allow" | "veto"> {

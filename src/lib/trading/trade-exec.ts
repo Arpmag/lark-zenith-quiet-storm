@@ -1,6 +1,6 @@
 import { BybitError, bybitSigned } from "@/lib/trading/bybit";
 import { floorToStep, roundToTick } from "@/lib/trading/math";
-import type { AccountResult, EntryResult, MarketKind, SyncResult } from "@/lib/trading/types";
+import { isUsdtName, type AccountResult, type EntryResult, type MarketKind, type SyncResult } from "@/lib/trading/types";
 
 type Instrument = {
   lotSizeFilter?: {
@@ -106,8 +106,8 @@ export async function openPosition(args: {
     if (args.market === "spot" && args.side !== "Buy") {
       return { ok: false, error: "На споті машина відкриває лише лонг." };
     }
-    if (!UNIVERSE_OK(args.symbol)) {
-      return { ok: false, error: "Пара поза дозволеним списком." };
+    if (!isUsdtName(args.symbol)) {
+      return { ok: false, error: "Беру лише USDT-спот і безстрокові USDT. Строкові і токени з плечем не чіпаю." };
     }
     const info = await instrument(args.venue, args.key, args.secret, args.market, args.symbol);
     const tick = num(info.priceFilter?.tickSize) || 0.01;
@@ -220,19 +220,6 @@ export async function openPosition(args: {
   } catch (error) {
     return fail(error);
   }
-}
-
-function UNIVERSE_OK(symbol: string): boolean {
-  return [
-    "BTCUSDT",
-    "ETHUSDT",
-    "SOLUSDT",
-    "XRPUSDT",
-    "LINKUSDT",
-    "AVAXUSDT",
-    "ADAUSDT",
-    "DOGEUSDT",
-  ].includes(symbol);
 }
 
 async function placeLinear(
@@ -536,7 +523,7 @@ export async function findLinearPositions(args: {
       query: { category: "linear", settleCoin: "USDT" },
     });
     const rows = (pos.list ?? [])
-      .filter((row) => num(row.size) > 0 && UNIVERSE_OK(String(row.symbol ?? "")))
+      .filter((row) => num(row.size) > 0)
       .map((row) => ({
         symbol: String(row.symbol),
         side: row.side === "Sell" ? ("short" as const) : ("long" as const),

@@ -4,7 +4,7 @@ import { Line, LineChart, ResponsiveContainer } from "recharts";
 import { QUOTA, QUOTA_PLAN } from "@/lib/trading/quota";
 import { kick, refreshBoard, startMachine, stopMachine, testKeys } from "@/lib/trading/machine";
 import { formatHm, formatPx, formatUsd, utcDay } from "@/lib/trading/math";
-import { breakevenPx, closeReading } from "@/lib/trading/risk";
+import { breakevenPx, closeReading, describeBook } from "@/lib/trading/risk";
 import { noteSecretEdit, useDesk } from "@/lib/trading/store";
 import {
   CALLS_PER_SESSION,
@@ -15,6 +15,7 @@ import {
   type MarketKind,
   type Venue,
 } from "@/lib/trading/types";
+import { liquidityLine, liquidityScore, marketBrief } from "@/lib/trading/strategy";
 import { LAST_STUDY } from "@/lib/trading/study";
 
 const MODES: { venue: Venue; market: MarketKind; title: string; detail: string }[] = [
@@ -389,6 +390,20 @@ export function DeskApp() {
               </button>
             </div>
             <p className="text-xs text-muted">{session.feedNote || "Знімаю ціни…"}</p>
+            <p className="mt-1 text-xs text-muted">
+              {describeBook({
+                weeklyUsd: settings.weeklyUsd,
+                riskPct: settings.riskPct,
+                market: settings.market,
+                realizedToday: session.realizedToday,
+                realizedWeek: session.realizedWeek,
+                closedToday: session.closedToday,
+                trades: session.trades,
+              })}
+            </p>
+            {session.board.length > 0 ? (
+              <p className="mt-1 text-xs text-muted">{marketBrief(session.board)}</p>
+            ) : null}
             {session.ledgerNote ? <p className="mt-1 text-xs text-muted">{session.ledgerNote}</p> : null}
             <div className="mt-3 grid gap-2">
               {session.board.length === 0 ? (
@@ -407,7 +422,13 @@ export function DeskApp() {
                           {row.tradable ? " · бере" : ""}
                         </p>
                       </div>
-                      <Spark values={row.spark} up={row.changePct >= 0} />
+                      <Spark
+                        values={row.spark}
+                        up={row.changePct >= 0}
+                        entry={row.side === "flat" ? undefined : row.entry}
+                        stop={row.stop > 0 ? row.stop : undefined}
+                        take={row.take > 0 ? row.take : undefined}
+                      />
                       <div className="text-right">
                         <p className="font-mono text-sm tabular-nums text-fg">{formatPx(row.last)}</p>
                         <p className={`font-mono text-xs tabular-nums ${row.changePct >= 0 ? "text-up" : "text-down"}`}>
@@ -417,6 +438,8 @@ export function DeskApp() {
                       </div>
                     </div>
                     <p className="mt-1 text-xs text-subtle">{row.reasons[0]}</p>
+                    <LiquidityMeter score={liquidityScore(row)} />
+                    {liquidityLine(row) ? <p className="text-xs text-subtle">{liquidityLine(row)}</p> : null}
                   </div>
                 ))
               )}
@@ -436,6 +459,7 @@ export function DeskApp() {
                 market={settings.market}
                 venue={settings.venue}
                 clock={clock}
+                spark={session.board.find((row) => row.symbol === session.active?.symbol)?.spark ?? []}
               />
             ) : (
               <p className="mt-2 text-sm text-muted">
@@ -555,7 +579,7 @@ export function DeskApp() {
           Перевірка {LAST_STUDY.label}: {LAST_STUDY.trades15} віртуальних угод на 15-хвилинках за {LAST_STUDY.days} діб, {LAST_STUDY.win15}% у плюс, середнє {LAST_STUDY.avgR15}R, profit factor {LAST_STUDY.pf15}. Пропуск ударних свічок дав {LAST_STUDY.avgRShock}R на {LAST_STUDY.tradesShock} угодах, лише відкати {LAST_STUDY.avgRPull}R на {LAST_STUDY.tradesPull}. Обидві половини вікна в мінусі, тому правило входу не змінював. Лонги окремо {LAST_STUDY.avgRLong}R, лише BTC і ETH {LAST_STUDY.avgRMajors}R. Комісія вже віднята.
         </p>
         <p>
-          Натовп — публічний lsr_account Gate, настрій — Alternative.me. Новини — CoinDesk, The Block, Cointelegraph і календар USD: злом, депег, зупинка виводів, делістинг, банкрутство, CPI, FOMC, NFP, PCE. Преміум-дані TradingView сюди не тягнуться. Якщо заголовок б'є по парі або по всьому ринку, новий вхід блокується. На ф'ючерсі угода не береться, якщо фандинг проти сторони від 0.08% за інтервал.
+          Натовп — публічний lsr_account Gate, настрій — Alternative.me. Новини — CoinDesk, The Block, Cointelegraph і календар USD: злом, депег, зупинка виводів, делістинг, банкрутство, CPI, FOMC, NFP, PCE. Преміум-дані TradingView сюди не тягнуться. Якщо заголовок б'є по парі або по всьому ринку, новий вхід блокується. На ф'ючерсі угода не береться, якщо фандинг проти сторони від 0.08% за інтервал. Розбір іде по ліквідних USDT-парах обраного режиму: спот або безстрокові, до 24 назв з оборотом від 15 млн. Строкові ф'ючерси і токени з плечем не беруться. Номінал не більший за 0.02% добового обороту.
         </p>
         <p>
           Ролі ради (розвідник, критик, ризик, виконавець, супровід, рецензент) розділяють роботу, як у дослідницьких multi-agent столах. Критик може сказати «ні». Ризик-модуль один ставить кількість і стоп.
@@ -642,11 +666,13 @@ function ActiveFacts({
   market,
   venue,
   clock,
+  spark,
 }: {
   active: ActiveTrade;
   market: MarketKind;
   venue: Venue;
   clock: number;
+  spark: number[];
 }) {
   const exchangeGross = venue !== "rehearsal" && market === "linear";
   const reading = closeReading({
@@ -661,7 +687,21 @@ function ActiveFacts({
   const be = breakevenPx({ market, side: active.side, entry: active.entry });
   const ahead = exchangeGross && active.unrealized > 0 && net < 0;
   return (
-    <div className="mt-3 grid gap-2 sm:grid-cols-4">
+    <div className="mt-3 grid gap-2">
+      <Spark
+        values={spark.length > 1 ? spark : [active.stop, active.entry, active.take, active.entry]}
+        up={active.side === "long"}
+        entry={active.entry}
+        stop={active.stop}
+        take={active.take}
+        tall
+      />
+      <div className="flex flex-wrap gap-3 text-xs">
+        <span className="text-fg">вхід {formatPx(active.entry)}</span>
+        <span className="text-down">стоп {formatPx(active.stop)}</span>
+        <span className="text-up">ціль {formatPx(active.take)}</span>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-4">
       <Stat label="Пара" value={`${active.symbol} ${active.side === "long" ? "лонг" : "шорт"} · ${active.leverage}×`} />
       <Stat label="Вхід" value={formatPx(active.entry)} />
       <Stat label="Стоп" value={formatPx(active.stop)} />
@@ -706,6 +746,7 @@ function ActiveFacts({
             : `Після комісії входу і виходу ${net >= 0 ? "+" : "−"}${formatUsd(Math.abs(net))}. Беззбитковість ${formatPx(be)}, ${reading.r >= 0 ? "+" : ""}${reading.r.toFixed(2)}R до стопа.`}
         </p>
       ) : null}
+      </div>
     </div>
   );
 }
@@ -721,20 +762,54 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "up
   );
 }
 
-function Spark({ values, up }: { values: number[]; up: boolean }) {
-  if (values.length < 2) return <div className="h-8" />;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+function LiquidityMeter({ score }: { score: number }) {
+  const color = score >= 70 ? "var(--color-up)" : score >= 40 ? "var(--color-accent)" : "var(--color-down)";
+  return (
+    <div className="mt-1 flex items-center gap-2">
+      <div className="h-1.5 min-w-0 flex-1 rounded-full bg-raised">
+        <div className="h-1.5 rounded-full" style={{ width: `${score}%`, background: color }} />
+      </div>
+      <span className="font-mono text-xs tabular-nums text-subtle">ліквідність {score}</span>
+    </div>
+  );
+}
+
+function Spark({
+  values,
+  up,
+  entry,
+  stop,
+  take,
+  tall,
+}: {
+  values: number[];
+  up: boolean;
+  entry?: number;
+  stop?: number;
+  take?: number;
+  tall?: boolean;
+}) {
+  if (values.length < 2) return <div className={tall ? "h-24" : "h-8"} />;
+  const marks = [entry, stop, take].filter((price): price is number => typeof price === "number" && price > 0);
+  const min = Math.min(...values, ...marks);
+  const max = Math.max(...values, ...marks);
   const span = max - min || 1;
+  const yOf = (price: number) => 28 - ((price - min) / span) * 24;
   const d = values
     .map((value, index) => {
       const x = (index / (values.length - 1)) * 100;
-      const y = 28 - ((value - min) / span) * 24;
-      return `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
+      return `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${yOf(value).toFixed(1)}`;
     })
     .join(" ");
+  const line = (price: number | undefined, color: string) =>
+    price && price > 0 ? (
+      <line x1="0" x2="100" y1={yOf(price)} y2={yOf(price)} stroke={color} strokeWidth="0.6" strokeDasharray="1.4 1" />
+    ) : null;
   return (
-    <svg viewBox="0 0 100 32" className="h-8 w-full" aria-hidden="true">
+    <svg viewBox="0 0 100 32" className={tall ? "h-24 w-full" : "h-8 w-full"} aria-hidden="true">
+      {line(take, "var(--color-up)")}
+      {line(entry, "var(--color-accent)")}
+      {line(stop, "var(--color-down)")}
       <path d={d} fill="none" stroke={up ? "var(--color-up)" : "var(--color-down)"} strokeWidth="1.6" />
     </svg>
   );

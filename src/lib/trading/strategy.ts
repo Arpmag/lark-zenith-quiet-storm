@@ -69,6 +69,7 @@ function scoreOne(
     barT: lastBar?.t ?? 0,
     barH: lastBar?.h ?? 0,
     barL: lastBar?.l ?? 0,
+    volRatio: 1,
   };
   if (closed.length < 60 || !(row.last > 0)) {
     base.reasons = ["Замало свічок для краю."];
@@ -113,8 +114,8 @@ function scoreOne(
     reasons.push("Немає чистого краю між EMA.");
   }
 
-  if (volRatio >= 1) reasons.push("Обсяг не нижче середнього.");
-  else reasons.push("Обсяг тонкий.");
+  if (volRatio >= 1) reasons.push(`Обсяг ${volRatio.toFixed(1)}× середнього, оборот ${formatTurnover(row.turnover)}.`);
+  else reasons.push(`Обсяг тонкий, ${volRatio.toFixed(1)}× середнього. Оборот ${formatTurnover(row.turnover)}.`);
 
   if (atrPct < 0.0015) reasons.push("Замало ходу для стопа.");
   if (atrPct > 0.045) reasons.push("Заширокий ATR для цього вікна.");
@@ -198,7 +199,47 @@ function scoreOne(
     take: side === "flat" ? 0 : take,
     reasons,
     fingerprint: fp,
+    volRatio,
   };
+}
+
+export function formatTurnover(n: number): string {
+  if (!(n > 0)) return "немає обороту";
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)} млрд`;
+  if (n >= 1_000_000) return `${Math.round(n / 1_000_000)} млн`;
+  return `${Math.round(n / 1_000)} тис`;
+}
+
+export function liquidityScore(row: { turnover: number; volRatio?: number }): number {
+  const depth =
+    row.turnover >= 100_000_000 ? 1 : row.turnover >= 30_000_000 ? 0.66 : row.turnover >= 15_000_000 ? 0.4 : 0.18;
+  const vol = Math.min(1, Math.max(0, (row.volRatio ?? 1) / 1.6));
+  return Math.round(Math.min(100, (depth * 0.72 + vol * 0.28) * 100));
+}
+
+export function liquidityLine(row: BoardRow): string {
+  const vol = row.volRatio ?? 0;
+  if (!(row.turnover > 0)) return "";
+  const depth = row.turnover >= 100_000_000 ? "глибока" : row.turnover >= 30_000_000 ? "нормальна" : "тонка";
+  const flow = vol >= 1.5 ? "обсяг росте" : vol >= 1 ? "обсяг звичайний" : "обсяг нижче середнього";
+  return `${depth}, ${formatTurnover(row.turnover)} за добу, ${flow} (${vol.toFixed(1)}×)`;
+}
+
+export function marketBrief(rows: BoardRow[]): string {
+  if (!rows.length) return "";
+  const up = rows.filter((row) => row.changePct > 0).length;
+  const longs = rows.filter((row) => row.side === "long").length;
+  const shorts = rows.filter((row) => row.side === "short").length;
+  const hot = rows.filter((row) => (row.volRatio ?? 0) >= 1).length;
+  const deep = rows.filter((row) => row.turnover >= 100_000_000).length;
+  const thin = rows.filter((row) => row.turnover > 0 && row.turnover < 30_000_000).length;
+  const turnovers = rows.map((row) => row.turnover).filter((n) => n > 0).sort((a, b) => a - b);
+  const mid = turnovers.length ? turnovers[Math.floor(turnovers.length / 2)] : 0;
+  const majors = rows
+    .filter((row) => row.symbol === "BTCUSDT" || row.symbol === "ETHUSDT")
+    .map((row) => `${row.symbol.replace("USDT", "")} ${row.changePct >= 0 ? "+" : ""}${row.changePct.toFixed(1)}%`)
+    .join(", ");
+  return `Ринок: ${up} з ${rows.length} у плюсі за добу, лонгів ${longs}, шортів ${shorts}. Обсяг вище середнього в ${hot} з ${rows.length}. Медіана обороту ${formatTurnover(mid)}. Глибоких ${deep}, тонших ${thin}.${majors ? ` ${majors}.` : ""}`;
 }
 
 export function localCritic(row: BoardRow): { verdict: "allow" | "veto"; note: string } {

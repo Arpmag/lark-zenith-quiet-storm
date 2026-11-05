@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { BybitError } from "@/lib/trading/bybit";
 import { loadTapeBias } from "@/lib/trading/context";
-import { lastPrice, scanBybit, scanGate } from "@/lib/trading/scan";
+import { lastPrice, marketCensus, scanBybit, scanGate } from "@/lib/trading/scan";
 import { closePosition, openPosition, readAccount, syncPosition } from "@/lib/trading/trade-exec";
 import type { Brain, Feed, Lesson, MarketKind, ScanResult } from "@/lib/trading/types";
 
@@ -51,9 +51,11 @@ export const scanMarkets = createServerFn({ method: "POST" })
       const tape = await loadTapeBias().catch(() => null);
       const bias = tape?.bias ?? null;
       const extra = tape?.line ? ` ${tape.line}` : "";
+      const census = await marketCensus().catch(() => "");
+      const book = census ? ` ${census}` : "";
       try {
         const rows = await scanBybit(data.market, data.lessons, data.recent, data.threshold, bias);
-        return { ok: true, feed: "bybit", note: `Стрічка Bybit.${extra}`, rows };
+        return { ok: true, feed: "bybit", note: `Стрічка Bybit.${book}${extra}`, rows };
       } catch (error) {
         const code = error instanceof BybitError ? error.code : undefined;
         const geo = code === "geo_blocked" || code === "unreachable";
@@ -63,7 +65,7 @@ export const scanMarkets = createServerFn({ method: "POST" })
             return {
               ok: true,
               feed: "gate",
-              note: `Bybit із цього сервера закритий. Репетиція йде на живих цінах Gate.io і не надсилає ордери.${extra}`,
+              note: `Bybit із цього сервера закритий. Репетиція йде на живих цінах Gate.io і не надсилає ордери.${book}${extra}`,
               rows,
             };
           } catch (fallback) {

@@ -1,6 +1,6 @@
 import { n as TSS_SERVER_FUNCTION, t as createServerFn } from "./ssr.mjs";
-import { S as scanGate, b as readAccount, c as closePosition, g as loadTapeBias, h as lastPrice, t as BybitError, w as syncPosition, x as scanBybit, y as openPosition } from "./trade-exec-YtTdjSSY.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/desk.functions-MgMtmUjg.js
+import { D as scanGate, E as scanBybit, S as marketCensus, T as readAccount, _ as lastPrice, c as closePosition, k as syncPosition, t as BybitError, w as openPosition, y as loadTapeBias } from "./trade-exec-D8Y9Apai.mjs";
+//#region node_modules/.nitro/vite/services/ssr/assets/desk.functions-WvykHg3b.js
 var createServerRpc = (serverFnMeta, splitImportFn) => {
 	const url = "/_serverFn/" + serverFnMeta.id;
 	return Object.assign(splitImportFn, {
@@ -42,12 +42,14 @@ var scanMarkets = createServerFn({ method: "POST" }).validator(scanInput).handle
 		const tape = await loadTapeBias().catch(() => null);
 		const bias = tape?.bias ?? null;
 		const extra = tape?.line ? ` ${tape.line}` : "";
+		const census = await marketCensus().catch(() => "");
+		const book = census ? ` ${census}` : "";
 		try {
 			const rows = await scanBybit(data.market, data.lessons, data.recent, data.threshold, bias);
 			return {
 				ok: true,
 				feed: "bybit",
-				note: `Стрічка Bybit.${extra}`,
+				note: `Стрічка Bybit.${book}${extra}`,
 				rows
 			};
 		} catch (error) {
@@ -57,7 +59,7 @@ var scanMarkets = createServerFn({ method: "POST" }).validator(scanInput).handle
 				return {
 					ok: true,
 					feed: "gate",
-					note: `Bybit із цього сервера закритий. Репетиція йде на живих цінах Gate.io і не надсилає ордери.${extra}`,
+					note: `Bybit із цього сервера закритий. Репетиція йде на живих цінах Gate.io і не надсилає ордери.${book}${extra}`,
 					rows
 				};
 			} catch (fallback) {
